@@ -1,0 +1,17 @@
+{
+  "name": "multi-hf",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Local-first Hugging Face Gradio batch workbench with a space-aware job queue",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test",
+    "check": "node scripts/check.mjs",
+    "preview": "node scripts/preview.mjs",
+    "build:android-assets": "node scripts/build-android-assets.mjs"
+  },
+  "engines": {
+    "node": ">=20.11"
+  }
+}
