@@ -19,7 +19,7 @@ jobs:
         with:
           persist-credentials: true
 
-      - name: Verify and publish source bundle
+      - name: Verify and publish complete source bundle
         shell: bash
         run: |
           set -euo pipefail
@@ -28,11 +28,18 @@ jobs:
           git bundle verify "$bundle"
           git fetch "$bundle" refs/heads/main:refs/heads/import-source
           target_sha="$(git rev-parse refs/heads/import-source)"
+          for path in \
+            index.html package.json package-lock.json \
+            src/app.js src/lib/queue.js src/lib/protocol.js src/lib/state.js \
+            src/lib/hosts.js src/lib/util.js src/lib/android-bridge.js \
+            scripts/check.mjs scripts/build.mjs scripts/preview.mjs \
+            scripts/build-android-assets.mjs test/queue.test.js \
+            android/app/src/main/AndroidManifest.xml \
+            android/app/src/main/java/com/samredwings/multihf/MainActivity.kt; do
+            git cat-file -e "$target_sha:$path"
+          done
           git push --force origin refs/heads/import-source:refs/heads/main
           git fetch origin main
           actual_sha="$(git rev-parse refs/remotes/origin/main)"
           test "$actual_sha" = "$target_sha"
-          git cat-file -e "$actual_sha:src/app.js"
-          git cat-file -e "$actual_sha:src/lib/diagnostics.js"
-          git cat-file -e "$actual_sha:package.json"
-          echo "Published source commit: $actual_sha"
+          echo "Published complete source commit: $actual_sha"
