@@ -17,29 +17,100 @@ jobs:
       - name: Check out transfer commit
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           persist-credentials: true
 
-      - name: Verify and publish complete source bundle
+      - name: Prepare Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify transfer chunks and source bundle
+        id: source
         shell: bash
         run: |
           set -euo pipefail
+          transfer_dir='.multi-hf-transfer'
+          expected_chunks=15
+
+          shopt -s nullglob
+          chunk_files=( "${transfer_dir}"/chunk-*.b64 )
+          bundle_files=( "${transfer_dir}"/bundle-*.b64 )
+          if (( ${#chunk_files[@]} > 0 && ${#bundle_files[@]} > 0 )); then
+            echo 'Do not mix chunk-*.b64 and bundle-*.b64 naming schemes.' >&2
+            exit 1
+          elif (( ${#chunk_files[@]} > 0 )); then
+            files=( "${chunk_files[@]}" )
+            prefix='chunk'
+          else
+            files=( "${bundle_files[@]}" )
+            prefix='bundle'
+          fi
+
+          if (( ${#files[@]} != expected_chunks )); then
+            echo "Expected ${expected_chunks} transfer chunks; found ${#files[@]}." >&2
+            exit 1
+          fi
+
+          for index in $(seq -w 1 "$expected_chunks"); do
+            expected="${transfer_dir}/${prefix}-${index}.b64"
+            if [[ ! -f "$expected" ]]; then
+              echo "Missing transfer chunk: $expected" >&2
+              exit 1
+            fi
+          done
+
+          mapfile -t files < <(printf '%s\n' "${files[@]}" | LC_ALL=C sort)
           bundle='/tmp/Multi-HF-Clean.bundle'
-          cat .multi-hf-transfer/bundle-*.b64 | base64 --decode > "$bundle"
+          cat "${files[@]}" | tr -d '\r\n\t ' | base64 --decode > "$bundle"
           git bundle verify "$bundle"
+          git bundle list-heads "$bundle" | awk '$2 == "refs/heads/main" { found=1 } END { exit !found }'
+
           git fetch "$bundle" refs/heads/main:refs/heads/import-source
           target_sha="$(git rev-parse refs/heads/import-source)"
-          for path in \
-            index.html package.json package-lock.json \
-            src/app.js src/lib/queue.js src/lib/protocol.js src/lib/state.js \
+          echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
+
+          for file in \
+            README.md .gitignore index.html package.json package-lock.json \
+            src/app.js src/styles.css \
+            src/lib/queue.js src/lib/protocol.js src/lib/state.js \
             src/lib/hosts.js src/lib/util.js src/lib/android-bridge.js \
             scripts/check.mjs scripts/build.mjs scripts/preview.mjs \
-            scripts/build-android-assets.mjs test/queue.test.js \
+            scripts/build-android-assets.mjs \
+            test/queue.test.js test/protocol.test.js test/state.test.js \
+            .github/workflows/build.yml \
             android/app/src/main/AndroidManifest.xml \
             android/app/src/main/java/com/samredwings/multihf/MainActivity.kt; do
-            git cat-file -e "$target_sha:$path"
+            git cat-file -e "$target_sha:$file" || {
+              echo "Imported source is missing required file: $file" >&2
+              exit 1
+            }
           done
-          git push --force origin refs/heads/import-source:refs/heads/main
+
+      - name: Test imported source before publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          target_sha="${{ steps.source.outputs.target_sha }}"
+          verify_dir='/tmp/multi-hf-source-verify'
+          git worktree add --detach "$verify_dir" "$target_sha"
+          cd "$verify_dir"
+          npm ci
+          npm test
+          npm run check
+          npm run build
+          npm audit
+
+      - name: Publish verified source to main
+        shell: bash
+        env:
+          TARGET_SHA: ${{ steps.source.outputs.target_sha }}
+          EXPECTED_MAIN_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git push --force-with-lease="refs/heads/main:${EXPECTED_MAIN_SHA}" \
+            origin "${TARGET_SHA}:refs/heads/main"
           git fetch origin main
           actual_sha="$(git rev-parse refs/remotes/origin/main)"
-          test "$actual_sha" = "$target_sha"
-          echo "Published complete source commit: $actual_sha"
+          test "$actual_sha" = "$TARGET_SHA"
+          echo "Published verified source commit: $actual_sha"
