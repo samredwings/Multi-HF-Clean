@@ -1,4 +1,4 @@
-name: Import verified Multi-HF source bundle
+name: Import verified Multi-HF source archive
 
 on:
   push:
@@ -25,92 +25,75 @@ jobs:
         with:
           node-version: 22
 
-      - name: Verify transfer chunks and source bundle
+      - name: Verify transfer chunks and archive
         id: source
         shell: bash
         run: |
           set -euo pipefail
           transfer_dir='.multi-hf-transfer'
           expected_chunks=15
-
           shopt -s nullglob
-          chunk_files=( "${transfer_dir}"/chunk-*.b64 )
-          bundle_files=( "${transfer_dir}"/bundle-*.b64 )
-          if (( ${#chunk_files[@]} > 0 && ${#bundle_files[@]} > 0 )); then
-            echo 'Do not mix chunk-*.b64 and bundle-*.b64 naming schemes.' >&2
-            exit 1
-          elif (( ${#chunk_files[@]} > 0 )); then
-            files=( "${chunk_files[@]}" )
-            prefix='chunk'
-          else
-            files=( "${bundle_files[@]}" )
-            prefix='bundle'
-          fi
-
+          files=( "${transfer_dir}"/chunk-*.b64 )
           if (( ${#files[@]} != expected_chunks )); then
-            echo "Expected ${expected_chunks} transfer chunks; found ${#files[@]}." >&2
+            echo "Expected ${expected_chunks} chunks; found ${#files[@]}." >&2
             exit 1
           fi
-
           for index in $(seq -w 1 "$expected_chunks"); do
-            expected="${transfer_dir}/${prefix}-${index}.b64"
-            if [[ ! -f "$expected" ]]; then
-              echo "Missing transfer chunk: $expected" >&2
-              exit 1
-            fi
+            expected="${transfer_dir}/chunk-${index}.b64"
+            [[ -f "$expected" ]] || { echo "Missing $expected" >&2; exit 1; }
           done
-
+          archive='/tmp/Multi-HF-v0.2.1-fixed.zip'
           mapfile -t files < <(printf '%s\n' "${files[@]}" | LC_ALL=C sort)
-          bundle='/tmp/Multi-HF-Clean.bundle'
-          cat "${files[@]}" | tr -d '\r\n\t ' | base64 --decode > "$bundle"
-          git bundle verify "$bundle"
-          git bundle list-heads "$bundle" | awk '$2 == "refs/heads/main" { found=1 } END { exit !found }'
-
-          git fetch "$bundle" refs/heads/main:refs/heads/import-source
-          target_sha="$(git rev-parse refs/heads/import-source)"
-          echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
-
+          cat "${files[@]}" | tr -d '\r\n\t ' | base64 --decode > "$archive"
+          unzip -tq "$archive"
+          listing="$(unzip -Z1 "$archive")"
+          if grep -Eq '(^/|(^|/)\.\.(/|$))' <<<"$listing"; then
+            echo 'Archive contains an unsafe path.' >&2
+            exit 1
+          fi
+          source_dir='/tmp/multi-hf-source'
+          mkdir -p "$source_dir"
+          unzip -q "$archive" -d "$source_dir"
           for file in \
-            README.md .gitignore index.html package.json package-lock.json \
-            src/app.js src/styles.css \
+            package.json package-lock.json index.html src/app.js src/styles.css \
             src/lib/queue.js src/lib/protocol.js src/lib/state.js \
             src/lib/hosts.js src/lib/util.js src/lib/android-bridge.js \
-            scripts/check.mjs scripts/build.mjs scripts/preview.mjs \
-            scripts/build-android-assets.mjs \
+            scripts/check.mjs scripts/build.mjs scripts/build-android-assets.mjs \
             test/queue.test.js test/protocol.test.js test/state.test.js \
             .github/workflows/build.yml \
             android/app/src/main/AndroidManifest.xml \
             android/app/src/main/java/com/samredwings/multihf/MainActivity.kt; do
-            git cat-file -e "$target_sha:$file" || {
-              echo "Imported source is missing required file: $file" >&2
-              exit 1
-            }
+            test -f "$source_dir/$file" || { echo "Missing required source file: $file" >&2; exit 1; }
           done
+          echo "source_dir=$source_dir" >> "$GITHUB_OUTPUT"
 
-      - name: Test imported source before publishing
+      - name: Test source before publishing
         shell: bash
         run: |
           set -euo pipefail
-          target_sha="${{ steps.source.outputs.target_sha }}"
-          verify_dir='/tmp/multi-hf-source-verify'
-          git worktree add --detach "$verify_dir" "$target_sha"
-          cd "$verify_dir"
+          cd /tmp/multi-hf-source
           npm ci
           npm test
           npm run check
           npm run build
           npm audit
 
-      - name: Publish verified source to main
+      - name: Replace repository with verified source
         shell: bash
         env:
-          TARGET_SHA: ${{ steps.source.outputs.target_sha }}
           EXPECTED_MAIN_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          git push --force-with-lease="refs/heads/main:${EXPECTED_MAIN_SHA}" \
-            origin "${TARGET_SHA}:refs/heads/main"
+          rsync -a --delete \
+            --exclude='.git/' \
+            --exclude='.multi-hf-transfer/' \
+            --exclude='.github/workflows/import-source.yml' \
+            /tmp/multi-hf-source/ ./
+          rm -rf .multi-hf-transfer
+          git add -A
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Import complete Multi-HF v0.2.1 source [source-published]"
+          git push --force-with-lease="refs/heads/main:${EXPECTED_MAIN_SHA}" origin HEAD:refs/heads/main
           git fetch origin main
-          actual_sha="$(git rev-parse refs/remotes/origin/main)"
-          test "$actual_sha" = "$TARGET_SHA"
-          echo "Published verified source commit: $actual_sha"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse refs/remotes/origin/main)"
