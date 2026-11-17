@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.multi-hf-transfer/READY'
+      - '.multi-hf-transfer/source.zip'
 
 permissions:
   contents: write
