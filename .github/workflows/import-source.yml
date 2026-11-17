@@ -32,20 +32,24 @@ jobs:
         run: |
           set -euo pipefail
           transfer_dir='.multi-hf-transfer'
-          expected_chunks=15
-          shopt -s nullglob
-          files=( "${transfer_dir}"/chunk-*.b64 )
-          if (( ${#files[@]} != expected_chunks )); then
-            echo "Expected ${expected_chunks} chunks; found ${#files[@]}." >&2
-            exit 1
-          fi
-          for index in $(seq -w 1 "$expected_chunks"); do
-            expected="${transfer_dir}/chunk-${index}.b64"
-            [[ -f "$expected" ]] || { echo "Missing $expected" >&2; exit 1; }
-          done
           archive='/tmp/Multi-HF-v0.2.1-fixed.zip'
-          mapfile -t files < <(printf '%s\n' "${files[@]}" | LC_ALL=C sort)
-          cat "${files[@]}" | tr -d '\r\n\t ' | base64 --decode > "$archive"
+          if [[ -f "${transfer_dir}/source.zip" ]]; then
+            cp "${transfer_dir}/source.zip" "$archive"
+          else
+            expected_chunks=15
+            shopt -s nullglob
+            files=( "${transfer_dir}"/chunk-*.b64 )
+            if (( ${#files[@]} != expected_chunks )); then
+              echo "Expected a source.zip or ${expected_chunks} chunks; found ${#files[@]}." >&2
+              exit 1
+            fi
+            for index in $(seq -w 1 "$expected_chunks"); do
+              expected="${transfer_dir}/chunk-${index}.b64"
+              [[ -f "$expected" ]] || { echo "Missing $expected" >&2; exit 1; }
+            done
+            mapfile -t files < <(printf '%s\n' "${files[@]}" | LC_ALL=C sort)
+            cat "${files[@]}" | tr -d '\r\n\t ' | base64 --decode > "$archive"
+          fi
           unzip -tq "$archive"
           listing="$(unzip -Z1 "$archive")"
           if grep -Eq '(^/|(^|/)\.\.(/|$))' <<<"$listing"; then
