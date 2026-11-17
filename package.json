@@ -1,6 +1,6 @@
 {
   "name": "multi-hf",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "description": "Local-first Hugging Face Gradio batch workbench with a space-aware job queue",
