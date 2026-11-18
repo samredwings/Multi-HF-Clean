@@ -1,0 +1,140 @@
+name: Import source
+
+on:
+  push:
+    paths:
+      - '.multi-hf-transfer/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout with PAT
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT_WORKFLOW }}
+          fetch-depth: 0
+
+      - name: Setup Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Import from source.zip
+        id: import_zip
+        run: |
+          ZIP=".multi-hf-transfer/source.zip"
+          if [ -f "$ZIP" ]; then
+            echo "Found $ZIP"
+
+            # Validate ZIP integrity
+            if ! unzip -t "$ZIP" > /dev/null 2>&1; then
+              echo "ERROR: ZIP archive is corrupt"
+              exit 1
+            fi
+
+            # Create temp extraction dir
+            TMPDIR=$(mktemp -d)
+            unzip -q "$ZIP" -d "$TMPDIR"
+
+            # Find the extracted project root (may be nested)
+            PROJECT_ROOT=$(find "$TMPDIR" -name "package.json" -not -path "*/node_modules/*" | head -1 | xargs dirname)
+            if [ -z "$PROJECT_ROOT" ]; then
+              echo "ERROR: No package.json found in ZIP"
+              exit 1
+            fi
+
+            echo "Project root: $PROJECT_ROOT"
+
+            # Preserve existing workflow files temporarily
+            mkdir -p .github/workflows/preserve
+            cp .github/workflows/*.yml .github/workflows/preserve/ 2>/dev/null || true
+
+            # Remove old project files except .git, .github, .multi-hf-transfer
+            find . -mindepth 1 -not -path './.git/*' -not -path './.git' -not -path './.github/*' -not -path './.github' -not -path './.multi-hf-transfer/*' -not -path './.multi-hf-transfer' -exec rm -rf {} + 2>/dev/null || true
+
+            # Copy new files
+            cp -r "$PROJECT_ROOT"/* .
+
+            # Restore preserved workflow files (new ones from ZIP will override)
+            cp .github/workflows/preserve/*.yml .github/workflows/ 2>/dev/null || true
+            rm -rf .github/workflows/preserve
+
+            # Stage everything
+            git add -A
+
+            if git diff --cached --quiet; then
+              echo "No changes to commit"
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+            else
+              git commit -m "chore: import source v0.2.1 from source.zip [source-published]"
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+            fi
+
+            # Clean up
+            rm -rf "$TMPDIR"
+          else
+            echo "No source.zip found"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fallback to git-bundle chunks
+        if: steps.import_zip.outputs.changed != 'true'
+        run: |
+          TRANSFER=".multi-hf-transfer"
+          READY="$TRANSFER/READY"
+
+          if [ ! -f "$READY" ]; then
+            echo "No READY file found. Skipping bundle import."
+            exit 0
+          fi
+
+          # Support both naming conventions
+          if ls "$TRANSFER"/bundle-*.b64 >/dev/null 2>&1; then
+            PATTERN="$TRANSFER"/bundle-*.b64
+          elif ls "$TRANSFER"/chunk-*.b64 >/dev/null 2>&1; then
+            PATTERN="$TRANSFER"/chunk-*.b64
+          else
+            echo "No bundle chunks found."
+            exit 0
+          fi
+
+          cat $PATTERN | base64 -d > multi-hf.bundle
+
+          if ! git bundle verify multi-hf.bundle; then
+            echo "ERROR: Bundle verification failed"
+            rm -f multi-hf.bundle
+            exit 1
+          fi
+
+          # Unbundle and force-push to main
+          git fetch multi-hf.bundle main:bundle-main || true
+          git checkout -B main bundle-main 2>/dev/null || git reset --hard bundle-main
+          git push origin main --force-with-lease
+
+          rm -f multi-hf.bundle
+
+      - name: Push imported ZIP changes
+        if: steps.import_zip.outputs.changed == 'true'
+        run: git push origin main
+
+      - name: Run tests
+        if: steps.import_zip.outputs.changed == 'true'
+        run: |
+          if [ -f package.json ]; then
+            npm ci 2>/dev/null || npm install
+            npm test
+          fi
+
+      - name: Report status
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "Import completed successfully."
+          else
+            echo "Import failed. Check the logs above."
+          fi
