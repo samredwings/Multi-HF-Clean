@@ -27,19 +27,22 @@ function parseChoices(raw) {
   const choices = [];
   for (const item of raw) {
     if (typeof item === "string" || typeof item === "number") {
-      const value = String(item);
-      choices.push({ label: stripEmoji(value) || value, value });
+      const value = item;
+      const label = String(value);
+      choices.push({ label: stripEmoji(label) || label, value });
       continue;
     }
     if (Array.isArray(item) && item.length > 1) {
-      const value = String(item[1]);
-      choices.push({ label: stripEmoji(item[0]) || value, value });
+      const value = item[1];
+      const label = String(item[0] ?? value);
+      choices.push({ label: stripEmoji(label) || String(value), value });
       continue;
     }
     const entry = isRecord(item) ? item : null;
     if (entry && "value" in entry) {
-      const value = String(entry.value);
-      choices.push({ label: stripEmoji(entry.label ?? value) || value, value });
+      const value = entry.value;
+      const label = String(entry.label ?? value);
+      choices.push({ label: stripEmoji(label) || String(value), value });
     }
   }
   return choices;
@@ -66,12 +69,17 @@ export function typeFor(rawType, props = {}) {
   return "text";
 }
 
+export function coerceChoiceValue(choices, value) {
+  const match = (choices ?? []).find((choice) => String(choice.value) === String(value));
+  return match ? match.value : value;
+}
+
 export function defaultValueFor(type, value, choices) {
   if (type === "checkbox") return value === true;
-  if (type === "checkboxgroup") return Array.isArray(value) ? value.map(String) : [];
+  if (type === "checkboxgroup") return Array.isArray(value) ? value.map((item) => coerceChoiceValue(choices, item)) : [];
   if (type === "number" || type === "slider") return number(value) ?? (value ?? null);
   if (type === "select" || type === "radio") {
-    return value == null ? (choices[0]?.value ?? "") : String(value);
+    return value == null ? (choices[0]?.value ?? "") : coerceChoiceValue(choices, value);
   }
   return typeof value === "string" ? value : "";
 }
