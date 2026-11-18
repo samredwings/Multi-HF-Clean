@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Multi-HF</string>
+    <string name="app_description">Local-first Hugging Face Spaces batch workbench</string>
+</resources>

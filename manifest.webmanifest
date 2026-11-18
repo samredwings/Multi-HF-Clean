@@ -1,0 +1,15 @@
+{
+  "name": "Multi-HF · Batch Studio",
+  "short_name": "Multi-HF",
+  "description": "Local-first Hugging Face Spaces batch workbench with a space-aware job queue",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0a0e17",
+  "theme_color": "#0c111b",
+  "orientation": "any",
+  "icons": [
+    { "src": "./favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
+

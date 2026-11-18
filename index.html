@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0c111b">
+  <meta name="description" content="Local-first Hugging Face Spaces batch workbench">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./src/styles.css">
+  <title>Multi-HF · Batch Studio</title>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="./"><span class="brand-mark">M</span><span><b>Multi-HF</b><small>Batch Studio</small></span></a>
+      <nav class="nav" aria-label="Main navigation">
+        <button class="nav-item active" data-tab="queue"><span>▦</span> Job queue <b id="nav-queue-count">0</b></button>
+        <button class="nav-item" data-tab="spaces"><span>◇</span> Spaces</button>
+        <button class="nav-item" data-tab="jobs"><span>◷</span> Job history</button>
+        <button class="nav-item" data-tab="profiles"><span>▤</span> Profiles</button>
+        <button class="nav-item" data-tab="accounts"><span>◎</span> Accounts</button>
+        <button class="nav-item" data-tab="debug"><span>⚙</span> Debug</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="account-status"><span class="dot idle"></span><span id="account-summary">No account connected</span></div>
+        <button class="nav-item" id="export-data"><span>⇩</span> Export workspace</button>
+        <button class="nav-item" id="import-data"><span>⇧</span> Import workspace</button>
+        <input id="import-file" type="file" accept="application/json,.json" hidden>
+        <p class="sidebar-note">Local-first · Tokens live in memory only</p>
+      </div>
+    </aside>
+    <main class="main-content">
+      <header class="topbar"><div><p class="eyebrow">HUGGING FACE · GRADIO</p><h1 id="page-title">Job queue</h1></div><div class="topbar-actions"><button class="button secondary" id="theme-toggle" type="button">Light theme</button><button class="button primary" id="quick-add">＋ Add job</button></div></header>
+      <div id="notice" class="notice" hidden></div>
+      <div id="view" class="content"></div>
+    </main>
+  </div>
+  <dialog id="dialog"><div id="dialog-content" class="dialog-content"></div></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="./src/app.js"></script>
+</body>
+</html>
+

@@ -13,6 +13,7 @@ import {
 import { escapeHtml, safeId, timeAgo, fmtDate, waitForHubRequest, waitForSpaceConfigProbe } from "./lib/util.js";
 import { retryDelay, FAILURE } from "./lib/protocol.js";
 import { createAndroidBridgeClient } from "./lib/android-bridge.js";
+import { eligibleJobsForDispatch, earliestPendingRetry, dispatchStaggered } from "./lib/scheduler.js";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -996,12 +997,7 @@ async function schedulerLoop() {
     }
 
     const now = Date.now();
-    // A retry deadline applies only to its own Space. Keep delayed jobs out of
-    // this dispatch plan while allowing ready jobs from other Spaces to proceed.
-    const eligibleJobs = appState.jobs.filter((job) => {
-      const retryAt = spaceRetryAfter.get(job.spaceId);
-      return !retryAt || retryAt <= now;
-    });
+    const eligibleJobs = eligibleJobsForDispatch(appState.jobs, spaceRetryAfter, now);
     const lanes = Object.fromEntries(appState.spaces.map((space) => [space.id, laneForView(space)]));
     const plan = planDispatch({ jobs: eligibleJobs, lanes, maxParallelSpaces: available });
 
@@ -1010,25 +1006,18 @@ async function schedulerLoop() {
         await new Promise((resolve) => setTimeout(resolve, 250));
         continue;
       }
-      const pendingRetryTimes = appState.jobs
-        .filter((job) => job.status === "ready")
-        .map((job) => spaceRetryAfter.get(job.spaceId))
-        .filter((retryAt) => Number.isFinite(retryAt) && retryAt > Date.now());
-      if (pendingRetryTimes.length > 0) {
-        const nextRetryAt = Math.min(...pendingRetryTimes);
+      const nextRetryAt = earliestPendingRetry(appState.jobs, spaceRetryAfter, Date.now());
+      if (nextRetryAt !== null) {
         await new Promise((resolve) => setTimeout(resolve, Math.max(0, nextRetryAt - Date.now())));
         continue;
       }
       break;
     }
 
-    // Start each planned Space independently, offset by 800 ms. Promise.all
-    // keeps this batch accounted for while allowing its jobs to run in parallel.
-    await Promise.all(plan.map(async ({ job }, index) => {
-      if (index > 0) await new Promise((resolve) => setTimeout(resolve, index * 800));
-      if (queuePaused) return;
-      await runOne(job);
-    }));
+    await dispatchStaggered(plan, runOne, {
+      delayMs: 800,
+      isPaused: () => queuePaused,
+    });
   }
 }
 
