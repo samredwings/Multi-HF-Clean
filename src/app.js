@@ -1,6 +1,6 @@
 import { parseSpaceInput, normalizeHost, tokenHeaders } from "./lib/hosts.js";
 import {
-  CONFIG_PATHS, deriveProtocol, endpointFor, parseSpaceConfig, protocolConfirmUrl,
+  CONFIG_PATHS, coerceChoiceValue, deriveProtocol, endpointFor, parseSpaceConfig, protocolConfirmUrl,
   taskFromEndpoints,
 } from "./lib/protocol.js";
 import {
@@ -652,7 +652,7 @@ function fieldMarkup(field, value) {
   if (field.type === "checkboxgroup") {
     const chosen = Array.isArray(value) ? value.map(String) : Array.isArray(field.defaultValue) ? field.defaultValue.map(String) : [];
     const choices = (field.choices ?? [])
-      .map((choice) => `<label class="check-row"><input type="checkbox" data-key="${escapeHtml(field.key)}" value="${escapeHtml(choice.value)}" ${chosen.includes(choice.value) ? "checked" : ""}><span>${escapeHtml(choice.label)}</span></label>`)
+      .map((choice) => `<label class="check-row"><input type="checkbox" data-key="${escapeHtml(field.key)}" value="${escapeHtml(choice.value)}" ${chosen.includes(String(choice.value)) ? "checked" : ""}><span>${escapeHtml(choice.label)}</span></label>`)
       .join("");
     return `<div class="field"><label>${label}</label>${choices || `<small>No choices detected.</small>`}${hint}</div>`;
   }
@@ -693,13 +693,16 @@ function collectValues(form, endpoint, fileMap) {
     if (!inputs.length) continue;
     const input = inputs[0];
     if (field.type === "checkboxgroup") {
-      values[field.key] = inputs.filter((item) => item.checked).map((item) => item.value);
+      values[field.key] = inputs.filter((item) => item.checked)
+        .map((item) => coerceChoiceValue(field.choices, item.value));
     } else if (["image", "video", "audio", "file"].includes(field.type)) {
       const file = input.files?.[0];
       if (file) fileMap.set(field.key, file);
       values[field.key] = file ? { name: file.name, size: file.size, mime: file.type } : null;
     } else if (field.type === "checkbox") {
       values[field.key] = input.checked;
+    } else if (field.type === "select" || field.type === "radio") {
+      values[field.key] = coerceChoiceValue(field.choices, input.value);
     } else if (field.type === "number" || field.type === "slider") {
       values[field.key] = input.value === "" ? null : Number(input.value);
     } else {
