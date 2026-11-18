@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   classifyFailure, configUrlCandidates, deriveProtocol, FAILURE, isRetryable,
-  normalizeOutputs, parseSpaceConfig, readGradioStream, retryDelay, taskFromEndpoints,
+  coerceChoiceValue, defaultValueFor, normalizeOutputs, parseSpaceConfig, readGradioStream, retryDelay, taskFromEndpoints,
 } from "../src/lib/protocol.js";
 import {
   gradio3Config, gradio4Config, gradio5Config, gradio5NoPrefixConfig, unknownVersionConfig,
@@ -31,6 +31,29 @@ test("Gradio 4 config resolves to the queue mode on the declared prefix", () => 
   const parsed = parseSpaceConfig(gradio4Config);
   assert.equal(parsed.endpoints[0].apiName, "generate");
   assert.deepEqual(parsed.endpoints[0].fields[1].choices.map((c) => c.value), ["fast", "quality"]);
+});
+
+test("numeric Gradio dropdown choices retain numeric types through defaults and form values", () => {
+  const parsed = parseSpaceConfig({
+    version: "5.0.0",
+    components: [
+      { id: 1, type: "dropdown", props: { label: "Resolution", choices: [1024, 1536, 2048], value: 1536 } },
+      { id: 2, type: "dropdown", props: { label: "Mode", choices: [["Fast", "fast"], ["Quality", "quality"]], value: "quality" } },
+      { id: 3, type: "checkboxgroup", props: { label: "Sizes", choices: [512, 1024], value: [512] } },
+      { id: 4, type: "image", props: { label: "Output" } },
+    ],
+    dependencies: [{ api_name: "generate", inputs: [1, 2, 3], outputs: [4] }],
+  });
+  const [resolution, mode, sizes] = parsed.endpoints[0].fields;
+  assert.deepEqual(resolution.choices.map((choice) => choice.value), [1024, 1536, 2048]);
+  assert.equal(resolution.defaultValue, 1536);
+  assert.equal(coerceChoiceValue(resolution.choices, "1536"), 1536);
+  assert.equal(typeof coerceChoiceValue(resolution.choices, "1536"), "number");
+  assert.equal(mode.defaultValue, "quality");
+  assert.equal(coerceChoiceValue(mode.choices, "fast"), "fast");
+  assert.deepEqual(sizes.defaultValue, [512]);
+  assert.deepEqual(sizes.defaultValue.map((value) => typeof value), ["number"]);
+  assert.equal(defaultValueFor("select", "1024", resolution.choices), 1024);
 });
 
 test("Gradio 5 config resolves to the queue contract and honours private visibility", () => {
