@@ -93,6 +93,7 @@ jobs:
             --exclude='.git/' \
             --exclude='.multi-hf-transfer/' \
             --exclude='.github/workflows/import-source.yml' \
+            --exclude='.github/workflows/build.yml' \
             /tmp/multi-hf-source/ ./
           rm -rf .multi-hf-transfer
           git add -A
